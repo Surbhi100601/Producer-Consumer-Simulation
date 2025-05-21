@@ -1,0 +1,155 @@
+# CODE 
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <unistd.h> 
+#include <sys/ipc.h> 
+#include <sys/shm.h> 
+#include <sys/types.h> 
+#include <fcntl.h> 
+#include <string.h> 
+#include <time.h> 
+#include <sys/wait.h> 
+#include <sys/stat.h> 
+#define NUM_PRODUCERS 3 
+#define NUM_CONSUMERS 10 
+#define NUM_PRODUCTS 3 
+#define MAX_STOCK 5 
+const char* products[] = {"Laptop", "Computer", "CPU"}; 
+const char* res_fifo = "/tmp/product_res"; 
+char req_fifos[NUM_PRODUCERS][20] = { 
+"/tmp/prod_req_0", 
+"/tmp/prod_req_1", 
+"/tmp/prod_req_2" 
+}; 
+// Shared Memory Segment Structure 
+typedef struct { 
+int stock[NUM_PRODUCERS][NUM_PRODUCTS]; // [Producer][Product] stock 
+int terminate; // termination flag 
+} SharedData; 
+int shmid; 
+SharedData* shared_data; 
+// Utility: Random int in range 
+int rand_range(int min, int max) { 
+return min + rand() % (max - min + 1); 
+} 
+// Producer Process 
+void producer_process(int pid) { 
+srand(time(NULL) ^ (getpid() << 16)); 
+int req_fd = open(req_fifos[pid], O_RDONLY); 
+if (req_fd < 0) { 
+perror("Producer failed to open request FIFO"); 
+exit(1); 
+} 
+while (1) { 
+if (shared_data->terminate) exit(0); 
+char buffer[100]; 
+int n = read(req_fd, buffer, sizeof(buffer)); 
+if (n <= 0) continue; 
+buffer[n] = '\0'; 
+int prod_id, prod_index, quantity; 
+sscanf(buffer, "%d %d %d", &prod_id, &prod_index, &quantity); 
+if (shared_data->stock[pid][prod_index] >= quantity) { 
+shared_data->stock[pid][prod_index] -= quantity; 
+snprintf(buffer, sizeof(buffer), "Producer %d: Gave %d %s(s), stock=%d", 
+pid, quantity, products[prod_index], shared_data->stock[pid][prod_index]); 
+} else { 
+snprintf(buffer, sizeof(buffer), "Producer %d: %s out of stock or not enough items!", 
+pid, products[prod_index]); 
+} 
+int res_fd = open(res_fifo, O_WRONLY); 
+write(res_fd, buffer, strlen(buffer)); 
+close(res_fd); 
+if (shared_data->stock[pid][prod_index] == 0) { 
+int delay = rand_range(2, 4); 
+sleep(delay); 
+shared_data->stock[pid][prod_index] = MAX_STOCK; 
+printf("Producer %d: Restocked %s to %d\n", pid, products[prod_index], MAX_STOCK); 
+} 
+} 
+} 
+// Consumer Process 
+void consumer_process(int cid) { 
+srand(time(NULL) ^ (getpid() << 16)); 
+while (1) { 
+if (shared_data->terminate) exit(0); 
+sleep(rand_range(1, 3)); 
+int producer_id = rand_range(0, NUM_PRODUCERS - 1); 
+int product_id = rand_range(0, NUM_PRODUCTS - 1); 
+int quantity = rand_range(1, 3); 
+char buffer[100]; 
+snprintf(buffer, sizeof(buffer), "%d %d %d", producer_id, product_id, quantity); 
+int req_fd = open(req_fifos[producer_id], O_WRONLY); 
+write(req_fd, buffer, strlen(buffer)); 
+close(req_fd); 
+int res_fd = open(res_fifo, O_RDONLY); 
+int n = read(res_fd, buffer, sizeof(buffer)); 
+close(res_fd); 
+buffer[n] = '\0'; 
+printf("Consumer %d → %s\n", cid, buffer); 
+} 
+} 
+// Print status 
+void print_status() { 
+printf("\n STOCK STATUS \n"); 
+for (int p = 0; p < NUM_PRODUCERS; ++p) { 
+printf("Producer %d: ", p); 
+for (int i = 0; i < NUM_PRODUCTS; ++i) { 
+printf("%s=%d ", products[i], shared_data->stock[p][i]); 
+} 
+printf("\n"); 
+} 
+printf(" status end \n"); 
+} 
+// Main Program 
+int main() { 
+// Create shared memory 
+shmid = shmget(IPC_PRIVATE, sizeof(SharedData), IPC_CREAT | 0666);//space for stock, 
+termination  
+shared_data = (SharedData*) shmat(shmid, NULL, 0); 
+// Initialize stock 
+for (int p = 0; p < NUM_PRODUCERS; ++p) { 
+for (int i = 0; i < NUM_PRODUCTS; ++i) { 
+shared_data->stock[p][i] = MAX_STOCK; 
+} 
+} 
+shared_data->terminate = 0; 
+// Create FIFOs 
+for (int i = 0; i < NUM_PRODUCERS; i++) { 
+mkfifo(req_fifos[i], 0666); 
+} 
+mkfifo(res_fifo, 0666); 
+// Fork producers 
+for (int i = 0; i < NUM_PRODUCERS; ++i) { 
+if (fork() == 0) { 
+producer_process(i); 
+exit(0); 
+} 
+} 
+// Fork consumers 
+for (int i = 0; i < NUM_CONSUMERS; ++i) { 
+if (fork() == 0) { 
+consumer_process(i); 
+exit(0); 
+} 
+} 
+// Monitor from main process 
+char input[20]; 
+while (1) { 
+printf("Enter 'status' to check stocks or 'exit' to quit:\n> "); 
+scanf("%s", input); 
+if (strcmp(input, "status") == 0) { 
+print_status(); 
+} else if (strcmp(input, "exit") == 0) { 
+shared_data->terminate = 1; 
+sleep(2); // Give children time to exit 
+break; 
+} 
+} 
+// Cleanup 
+shmctl(shmid, IPC_RMID, NULL); 
+for (int i = 0; i < NUM_PRODUCERS; i++) { 
+unlink(req_fifos[i]); 
+} 
+unlink(res_fifo); 
+return 0; 
+}
