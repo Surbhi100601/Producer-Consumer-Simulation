@@ -46,4 +46,8 @@ o Sleep randomly (1–3 seconds).
 o Choose random producer, product, and quantity. 
 o Open producer's request FIFO in write mode and send request. 
 o Open response FIFO in read mode and read the response. 
-o Print the received m
+o Print the received message. 
+
+![![image](https://github.com/user-attachments/assets/dbaa7e14-a33e-4edd-a2e9-d3f21c5b6cc5)]
+
+
