@@ -49,5 +49,11 @@ o Open response FIFO in read mode and read the response.
 o Print the received message. 
 
 ![![image](https://github.com/user-attachments/assets/dbaa7e14-a33e-4edd-a2e9-d3f21c5b6cc5)]
+# Result
+![![image](https://github.com/user-attachments/assets/98dbc1e7-2284-4fcb-bbc5-b3cd0ed70b75)]
+
+![![image](https://github.com/user-attachments/assets/f9d9c1e6-2a23-43b6-b1db-c8eccb025ef0)]
+
+
 
 
